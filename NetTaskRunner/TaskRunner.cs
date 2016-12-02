@@ -12,7 +12,6 @@ namespace NetTaskRunner
 		#region Fields
 
 		private readonly Dictionary<string, TaskWrapper> _tasksWrappers = new Dictionary<string, TaskWrapper>();
-		private Barrier _finishingBarrier;
 
 		#endregion
 
@@ -36,18 +35,18 @@ namespace NetTaskRunner
 
 		public Task RunAllTasks()
 		{
-			_finishingBarrier = new Barrier(_tasksWrappers.Count + 1);
+			var finishingBarrier = new Barrier(_tasksWrappers.Count + 1);
 
 			// We have to do this sepearately use ToList to make sure 
 			// we don't have tasks finishing while the loop is still running...
 			var dependencyFreeTasks = _tasksWrappers.Values.Where(task => task.UnmetDependencies == 0).ToList();
 
 			foreach (var task in dependencyFreeTasks)
-				Task.Run(() => PerformTask(task));
+				Task.Run(() => PerformTask(task, finishingBarrier));
 
 			return Task.Run(() =>
 			{
-				_finishingBarrier.SignalAndWait();
+				finishingBarrier.SignalAndWait();
 				ResetTaskWrappers();
 			});
 		}
@@ -73,20 +72,17 @@ namespace NetTaskRunner
 		private void ResetTaskWrappers()
 		{
 			foreach (var task in _tasksWrappers.Values)
-			{
-				task.DependantTasks.Clear();
 				task.UnmetDependencies = 0;
-			}
 
 			foreach (var task in _tasksWrappers.Values)
-				UpdateTaskDependencies(task);
+				foreach (var dependantTask in task.DependantTasks)
+					dependantTask.UnmetDependencies++;
 		}
 
-		private void PerformTask(TaskWrapper task)
+		private void PerformTask(TaskWrapper task, Barrier finishingBarrier)
 		{
 			task.ActualTask.Perform();
 
-			var tasksToWaitFor = new List<Task>();
 			foreach (var dependantTask in task.DependantTasks)
 			{
 				bool shouldPerform = false;
@@ -100,11 +96,11 @@ namespace NetTaskRunner
 				if (shouldPerform)
 				{
 					var taskToPerform = dependantTask;
-					tasksToWaitFor.Add(Task.Run(() => PerformTask(taskToPerform)));
+					Task.Run(() => PerformTask(taskToPerform, finishingBarrier));
 				}
 			}
 
-			_finishingBarrier.RemoveParticipant();
+			finishingBarrier.RemoveParticipant();
 		}
 
 		private class TaskWrapper
@@ -113,7 +109,6 @@ namespace NetTaskRunner
 			{
 				ActualTask = task;
 				UnmetDependencies = 0;
-				WasPerformed = false;
 				DependantTasks = new List<TaskWrapper>();
 			}
 
@@ -121,9 +116,12 @@ namespace NetTaskRunner
 
 			public int UnmetDependencies { get; set; }
 
-			public bool WasPerformed { get; set; }
-
 			public IList<TaskWrapper> DependantTasks { get; private set; }
+
+			public override string ToString()
+			{
+				return string.Format("{0} ({1} dependencies, {2} depenedent)", ActualTask.Name, UnmetDependencies, DependantTasks.Count);
+			}
 		}
 
 		#endregion

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NetTaskRunner;
+using System.Linq;
 
 namespace TaskRun4Net.Tests
 {
@@ -182,33 +183,44 @@ namespace TaskRun4Net.Tests
 		}
 
 		[TestMethod]
+		public void RunAllTasks_RunningTwiceShouldRunAllTasksTwiceInTheRightOrder()
+		{
+			// Arrange
+			var runner = new TaskRunner();
+			var task1 = new ControlledTask("Task1");
+			var task2 = new ControlledTask("Task2");
+			var dependantTask = new ControlledTask("Task3", new[] { "Task1", "Task2" });
+			var dependantTask2 = new ControlledTask("Task4", new[] { "Task3", "Task2" });
+			var allTasks = new[] { task1, task2, dependantTask, dependantTask2 };
+			foreach (var task in allTasks)
+				runner.RegisterTask(task);
+
+			// Act
+			var finishedTask = runner.RunAllTasks();
+			foreach (var task in allTasks)
+				task.FinishPerforming();
+			finishedTask.Wait();
+			finishedTask = runner.RunAllTasks();
+
+			// Assert
+			task1.FinishPerforming();
+			task2.FinishPerforming();
+			dependantTask.FinishPerforming();
+			Assert.IsFalse(finishedTask.Wait(100));
+
+			dependantTask2.FinishPerforming();
+			Assert.IsTrue(finishedTask.Wait(100));
+			Assert.IsTrue(allTasks.All(t => t.RunCounter == 2));
+		}
+
+		[TestMethod]
 		public void Integration_ShouldOnlyFinishTaskWhenAllTasksAreDone()
 		{
 			// Arrange
-			var random = new Random();
 			var runner = new TaskRunner();
-			var allTasks = new List<ControlledTask>();
-			for (int i = 0; i < 100; i++)
-			{
-				var controlledTask = new ControlledTask(i.ToString(), true);
-				allTasks.Add(controlledTask);
-				runner.RegisterTask(controlledTask);
-			}
-
-			var existingTaskCount = 100;
-			for (int i = 100; i < 1000; i++)
-			{
-				var dependencies = new List<string>();
-				var dependencyCount = random.Next(10, 100);
-				for (int j = 0; j < dependencyCount; j++)
-					dependencies.Add(random.Next(0, existingTaskCount - 1).ToString());
-
-				var controlledTask = new ControlledTask(i.ToString(), dependencies, true);
-				runner.RegisterTask(controlledTask);
-				allTasks.Add(controlledTask);
-
-				existingTaskCount++;
-			}
+			var allTasks = GenerateManyRandomTasks(1000);
+			foreach (var task in allTasks)
+				runner.RegisterTask(task);
 
 			// Act
 			var isDone = runner.RunAllTasks().Wait(4000);
@@ -222,15 +234,63 @@ namespace TaskRun4Net.Tests
 			}
 		}
 
+		[TestMethod]
+		public void Integration_RunningManyTasksTwiceShouldRunThemAllTwice()
+		{
+			// Arrange
+			var runner = new TaskRunner();
+			var allTasks = GenerateManyRandomTasks(10);
+			foreach (var task in allTasks)
+				runner.RegisterTask(task);
+
+			// Act
+			var isDone1 = runner.RunAllTasks().Wait(4000);
+			var isDone2 = runner.RunAllTasks().Wait(4000);
+
+			// Assert
+			Assert.IsTrue(isDone1);
+			//Assert.IsTrue(isDone2);
+			foreach (var task in allTasks)
+				Assert.AreEqual(2, task.RunCounter, string.Format("Task {0} was run incorrect number of times!", task.Name));
+		}
+
 		// Test for nulls
-		// Integration test with lots of tasks running
 		// Test running twice in a row
+
+
+		private static List<ControlledTask> GenerateManyRandomTasks(int taskCount)
+		{
+			var allTasks = new List<ControlledTask>();
+			var random = new Random();
+			var freeTasks = random.Next(1, Math.Min(taskCount, 100));
+			for (int i = 0; i < freeTasks; i++)
+			{
+				var controlledTask = new ControlledTask(i.ToString(), true);
+				allTasks.Add(controlledTask);
+			}
+
+			var existingTaskCount = freeTasks;
+			for (int i = freeTasks; i < taskCount; i++)
+			{
+				var dependencies = new List<string>();
+				var dependencyCount = random.Next(10, 100);
+				for (int j = 0; j < dependencyCount; j++)
+					dependencies.Add(random.Next(0, existingTaskCount - 1).ToString());
+
+				var controlledTask = new ControlledTask(i.ToString(), dependencies, true);
+				allTasks.Add(controlledTask);
+
+				existingTaskCount++;
+			}
+
+			return allTasks;
+		}
 
 		private class ControlledTask : ITask
 		{
 			private int _runCounter = 0;
-			private readonly Semaphore _canFinishSemaphore = new Semaphore(0, 1);
-			private readonly Semaphore _isPerformedSemaphore = new Semaphore(0, 1);
+			private readonly Semaphore _canFinishSemaphore;
+			private readonly Semaphore _isPerformedSemaphore = new Semaphore(0, 1000);
 			public string Name { get; private set; }
 
 			public IEnumerable<string> Dependencies { get; private set; }
@@ -247,7 +307,9 @@ namespace TaskRun4Net.Tests
 				Name = name;
 				Dependencies = dependencies ?? new string[] { };
 				if (finishAutomatically)
-					_canFinishSemaphore.Release();
+					_canFinishSemaphore = null;
+				else
+					_canFinishSemaphore = new Semaphore(0, 1);
 			}
 
 			public ControlledTask(string name, bool finishAutomatically)
@@ -259,12 +321,18 @@ namespace TaskRun4Net.Tests
 			{
 				_isPerformedSemaphore.Release();
 				Interlocked.Increment(ref _runCounter);
-				_canFinishSemaphore.WaitOne();
+				if(_canFinishSemaphore != null)
+					_canFinishSemaphore.WaitOne();
 			}
 
 			public void FinishPerforming()
 			{
 				_canFinishSemaphore.Release();
+			}
+
+			public override string ToString()
+			{
+				return Name;
 			}
 		}
 	}
