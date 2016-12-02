@@ -11,7 +11,8 @@ namespace NetTaskRunner
 	{
 		#region Fields
 
-		private readonly Dictionary<string, TaskWrapper> _tasksWrappers = new Dictionary<string, TaskWrapper>(); 
+		private readonly Dictionary<string, TaskWrapper> _tasksWrappers = new Dictionary<string, TaskWrapper>();
+		private Barrier _finishingBarrier;
 
 		#endregion
 
@@ -35,15 +36,20 @@ namespace NetTaskRunner
 
 		public Task RunAllTasks()
 		{
-			// We have to sepeare the expressions and use ToList here to make sure 
+			_finishingBarrier = new Barrier(_tasksWrappers.Count + 1);
+
+			// We have to do this sepearately use ToList to make sure 
 			// we don't have tasks finishing while the loop is still running...
 			var dependencyFreeTasks = _tasksWrappers.Values.Where(task => task.UnmetDependencies == 0).ToList();
 
-			var tasksToWaitFor = dependencyFreeTasks
-										.Select(taskToPerform => Task.Run(() => PerformTask(taskToPerform)))
-										.ToList();
+			foreach (var task in dependencyFreeTasks)
+				Task.Run(() => PerformTask(task));
 
-			return Task.WhenAll(tasksToWaitFor).ContinueWith(ResetTaskWrappers);
+			return Task.Run(() =>
+			{
+				_finishingBarrier.SignalAndWait();
+				ResetTaskWrappers();
+			});
 		}
 
 		#endregion
@@ -64,8 +70,14 @@ namespace NetTaskRunner
 			}
 		}
 
-		private void ResetTaskWrappers(Task _)
+		private void ResetTaskWrappers()
 		{
+			foreach (var task in _tasksWrappers.Values)
+			{
+				task.DependantTasks.Clear();
+				task.UnmetDependencies = 0;
+			}
+
 			foreach (var task in _tasksWrappers.Values)
 				UpdateTaskDependencies(task);
 		}
@@ -77,22 +89,22 @@ namespace NetTaskRunner
 			var tasksToWaitFor = new List<Task>();
 			foreach (var dependantTask in task.DependantTasks)
 			{
+				bool shouldPerform = false;
 				lock (dependantTask)
 				{
 					dependantTask.UnmetDependencies--;
 					if (dependantTask.UnmetDependencies == 0)
-					{
-						var taskToPerform = dependantTask;
-						tasksToWaitFor.Add(Task.Run(() => PerformTask(taskToPerform)));
-					}
+						shouldPerform = true;
+				}
+
+				if (shouldPerform)
+				{
+					var taskToPerform = dependantTask;
+					tasksToWaitFor.Add(Task.Run(() => PerformTask(taskToPerform)));
 				}
 			}
 
-			Task.WhenAll(tasksToWaitFor).Wait();
-		}
-
-		private void PrepareTasksWrappers()
-		{
+			_finishingBarrier.RemoveParticipant();
 		}
 
 		private class TaskWrapper

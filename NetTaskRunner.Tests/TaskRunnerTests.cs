@@ -201,7 +201,7 @@ namespace TaskRun4Net.Tests
 				var dependencies = new List<string>();
 				var dependencyCount = random.Next(10, 100);
 				for (int j = 0; j < dependencyCount; j++)
-					dependencies.Add(random.Next(0, existingTaskCount-1).ToString());
+					dependencies.Add(random.Next(0, existingTaskCount - 1).ToString());
 
 				var controlledTask = new ControlledTask(i.ToString(), dependencies, true);
 				runner.RegisterTask(controlledTask);
@@ -214,9 +214,12 @@ namespace TaskRun4Net.Tests
 			var isDone = runner.RunAllTasks().Wait(4000);
 
 			// Assert
-			foreach (var task in allTasks)
-				Assert.AreEqual(1, task.RunCounter, string.Format("Task {0} was run incorrect number of times!", task.Name));
 			Assert.IsTrue(isDone);
+			foreach (var task in allTasks)
+			{
+				Assert.IsTrue(task.IsPerformed);
+				Assert.AreEqual(1, task.RunCounter, string.Format("Task {0} was run incorrect number of times!", task.Name));
+			}
 		}
 
 		// Test for nulls
