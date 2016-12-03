@@ -4,12 +4,41 @@ using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NetTaskRunner;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace TaskRun4Net.Tests
 {
 	[TestClass]
 	public class TaskRunnerTests
 	{
+		#region RegisterTask
+
+		[TestMethod]
+		[ExpectedException(typeof(ArgumentException))]
+		public void RegisterTask_ShouldThrowExceptionForNonExistingDependency()
+		{
+			// Arrange
+			var runner = new TaskRunner();
+			var dependantTask = new ControlledTask("Task2", new[] { "Task1" });
+			runner.RegisterTask(dependantTask);
+		}
+
+		[TestMethod]
+		[ExpectedException(typeof(ArgumentException))]
+		public void RegisterTask_ShouldThrowExceptionForTasksWithSameName()
+		{
+			// Arrange
+			var runner = new TaskRunner();
+			var task1 = new ControlledTask("Task");
+			var task2 = new ControlledTask("Task");
+			runner.RegisterTask(task1);
+			runner.RegisterTask(task2);
+		}
+
+		#endregion
+
+		#region RunAllTasks
+
 		[TestMethod]
 		public void RunAllTasks_ShouldRunSingleRegisteredTask()
 		{
@@ -43,28 +72,6 @@ namespace TaskRun4Net.Tests
 			Assert.IsFalse(dependantTask.IsPerformed);
 			controlledTask.FinishPerforming();
 			Assert.IsTrue(dependantTask.IsPerformed);
-		}
-
-		[TestMethod]
-		[ExpectedException(typeof(ArgumentException))]
-		public void RegisterTask_ShouldThrowExceptionForNonExistingDependency()
-		{
-			// Arrange
-			var runner = new TaskRunner();
-			var dependantTask = new ControlledTask("Task2", new[] { "Task1" });
-			runner.RegisterTask(dependantTask);
-		}
-
-		[TestMethod]
-		[ExpectedException(typeof(ArgumentException))]
-		public void RegisterTask_ShouldThrowExceptionForTasksWithSameName()
-		{
-			// Arrange
-			var runner = new TaskRunner();
-			var task1 = new ControlledTask("Task");
-			var task2 = new ControlledTask("Task");
-			runner.RegisterTask(task1);
-			runner.RegisterTask(task2);
 		}
 
 		[TestMethod]
@@ -214,6 +221,75 @@ namespace TaskRun4Net.Tests
 		}
 
 		[TestMethod]
+		public async Task RunAllTasks_ShouldPassOnlyCorrectArgumentsToRelevantTasks()
+		{
+			// Arrange
+			var taskRunner = new TaskRunner();
+			var independeantTask = new ControlledTaskWithReturnValue<int>(6, "Task", true);
+
+			var level0Task1 = new ControlledTaskWithReturnValue<string>("value", "FirstLevel0", true);
+			var level0Task2 = new ControlledTaskWithReturnValue<double>(5.5, "SecondLevel0", true);
+
+			var midlevelTask = new ControlledTaskWithReturnValue<char>('r', "Midtask", new[] { "FirstLevel0" }, true);
+
+			var finalTask = new ControlledTaskWithReturnValue<bool>(true, "FinalTask", new[] { "Midtask", "SecondLevel0" }, true);
+
+			var allTasks = new ITask[] { independeantTask, level0Task1, level0Task2, midlevelTask, finalTask };
+			foreach (var task in allTasks)
+				taskRunner.RegisterTask(task);
+
+			// Act
+			await taskRunner.RunAllTasks();
+
+			// Assert
+			Assert.AreEqual(0, independeantTask.Arguments.Count);
+			Assert.AreEqual(0, level0Task1.Arguments.Count);
+			Assert.AreEqual(0, level0Task2.Arguments.Count);
+			Assert.AreEqual(1, midlevelTask.Arguments.Count);
+			Assert.AreEqual(2, finalTask.Arguments.Count);
+
+			Assert.AreEqual("value", midlevelTask.Arguments.Get("FirstLevel0"));
+
+			Assert.AreEqual('r', finalTask.Arguments.Get("Midtask"));
+			Assert.AreEqual(5.5, finalTask.Arguments.Get("SecondLevel0"));
+		}
+
+		[TestMethod]
+		public async Task RunAllTasks_ShouldReturnAllValuesInFinalResult()
+		{
+			// Arrange
+			var taskRunner = new TaskRunner();
+			var independeantTask = new ControlledTaskWithReturnValue<int>(6, "Task", true);
+
+			var level0Task1 = new ControlledTaskWithReturnValue<string>("value", "FirstLevel0", true);
+			var level0Task2 = new ControlledTaskWithReturnValue<double>(5.5, "SecondLevel0", true);
+
+			var midlevelTask = new ControlledTaskWithReturnValue<char>('r', "Midtask", new[] { "FirstLevel0" }, true);
+
+			var finalTask = new ControlledTaskWithReturnValue<bool>(true, "FinalTask", new[] { "Midtask", "SecondLevel0" }, true);
+
+			var allTasks = new ITask[] { independeantTask, level0Task1, level0Task2, midlevelTask, finalTask };
+			foreach (var task in allTasks)
+				taskRunner.RegisterTask(task);
+
+			// Act
+			var finalHolder = await taskRunner.RunAllTasks();
+
+			// Assert
+			Assert.AreEqual(allTasks.Length, finalHolder.Count);
+
+			Assert.AreEqual(6, finalHolder.Get("Task"));
+			Assert.AreEqual("value", finalHolder.Get("FirstLevel0"));
+			Assert.AreEqual(5.5, finalHolder.Get("SecondLevel0"));
+			Assert.AreEqual('r', finalHolder.Get("Midtask"));
+			Assert.AreEqual(true, finalHolder.Get("FinalTask"));
+		}
+
+		#endregion
+
+		#region Integration
+
+		[TestMethod]
 		public void Integration_ShouldOnlyFinishTaskWhenAllTasksAreDone()
 		{
 			// Arrange
@@ -254,9 +330,9 @@ namespace TaskRun4Net.Tests
 				Assert.AreEqual(2, task.RunCounter, string.Format("Task {0} was run incorrect number of times!", task.Name));
 		}
 
-		// Test for nulls
-		// Test running twice in a row
+		#endregion
 
+		#region Private Methods
 
 		private static List<ControlledTask> GenerateManyRandomTasks(int taskCount)
 		{
@@ -286,11 +362,22 @@ namespace TaskRun4Net.Tests
 			return allTasks;
 		}
 
+		#endregion
+
+		#region Private Classes
+
 		private class ControlledTask : ITask
 		{
+			#region Fields
+
 			private int _runCounter = 0;
 			private readonly Semaphore _canFinishSemaphore;
 			private readonly Semaphore _isPerformedSemaphore = new Semaphore(0, 1000);
+
+			#endregion
+
+			#region Properties
+
 			public string Name { get; private set; }
 
 			public IEnumerable<string> Dependencies { get; private set; }
@@ -301,6 +388,12 @@ namespace TaskRun4Net.Tests
 			{
 				get { return _isPerformedSemaphore.WaitOne(100); }
 			}
+
+			public IArgumentHolder Arguments { get; private set; }
+
+			#endregion
+
+			#region C'tor
 
 			public ControlledTask(string name, IEnumerable<string> dependencies = null, bool finishAutomatically = false)
 			{
@@ -317,12 +410,21 @@ namespace TaskRun4Net.Tests
 			{
 			}
 
-			public void Perform()
+			#endregion
+
+			#region Public Methods
+
+			public virtual object Perform(IArgumentHolder holder)
 			{
 				_isPerformedSemaphore.Release();
+				
 				Interlocked.Increment(ref _runCounter);
+				Arguments = holder;
+
 				if(_canFinishSemaphore != null)
 					_canFinishSemaphore.WaitOne();
+
+				return null;
 			}
 
 			public void FinishPerforming()
@@ -334,6 +436,33 @@ namespace TaskRun4Net.Tests
 			{
 				return Name;
 			}
+
+			#endregion
 		}
+
+		private class ControlledTaskWithReturnValue<T> : ControlledTask
+		{
+			public T Value { get; private set; }
+
+			public ControlledTaskWithReturnValue(T value, string name, IEnumerable<string> dependencies = null, bool finishAutomatically = false)
+				: base(name, dependencies, finishAutomatically)
+			{
+				Value = value;
+			}
+
+			public ControlledTaskWithReturnValue(T value, string name, bool finishAutomatically)
+				: this(value, name, null, finishAutomatically)
+			{
+			}
+
+			public override object Perform(IArgumentHolder holder)
+			{
+				base.Perform(holder);
+
+				return Value;
+			}
+		}
+
+		#endregion
 	}
 }

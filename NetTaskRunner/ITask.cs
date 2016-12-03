@@ -6,6 +6,6 @@ namespace NetTaskRunner
 	{
 		string Name { get; }
 		IEnumerable<string> Dependencies { get; }
-		void Perform();
+		object Perform(IArgumentHolder argumentHolder);
 	}
 }

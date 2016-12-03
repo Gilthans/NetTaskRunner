@@ -8,9 +8,9 @@ namespace NetTaskRunner
 {
 	public class DelegateTask : ITask
 	{
-		private Action _taskAction;
+		private Func<IArgumentHolder, object> _taskAction;
 
-		public DelegateTask(string name, Action taskAction, IEnumerable<string> dependencies)
+		public DelegateTask(string name, Func<IArgumentHolder, object> taskAction, IEnumerable<string> dependencies)
 		{
 			_taskAction = taskAction;
 			Dependencies = dependencies;
@@ -21,9 +21,9 @@ namespace NetTaskRunner
 
 		public string Name { get; }
 
-		public void Perform()
+		public object Perform(IArgumentHolder argumentHolder)
 		{
-			_taskAction();
+			return _taskAction(argumentHolder);
 		}
 	}
 }

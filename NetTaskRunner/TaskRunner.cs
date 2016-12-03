@@ -27,27 +27,31 @@ namespace NetTaskRunner
 
 		public void RegisterTask(ITask newTask)
 		{
+			if (newTask == null)
+				throw new ArgumentNullException(nameof(newTask));
 			var newTaskWrapper = new TaskWrapper(newTask);
 			_tasksWrappers.Add(newTask.Name, newTaskWrapper);
 
 			UpdateTaskDependencies(newTaskWrapper);
 		}
 
-		public Task RunAllTasks()
+		public Task<IArgumentHolder> RunAllTasks()
 		{
 			var finishingBarrier = new Barrier(_tasksWrappers.Count + 1);
+			IArgumentHolder globalArgumentHolder = new ArgumentHolder();
 
 			// We have to do this sepearately use ToList to make sure 
 			// we don't have tasks finishing while the loop is still running...
 			var dependencyFreeTasks = _tasksWrappers.Values.Where(task => task.UnmetDependencies == 0).ToList();
 
 			foreach (var task in dependencyFreeTasks)
-				Task.Run(() => PerformTask(task, finishingBarrier));
+				Task.Run(() => PerformTask(task, globalArgumentHolder, finishingBarrier));
 
 			return Task.Run(() =>
 			{
 				finishingBarrier.SignalAndWait();
 				ResetTaskWrappers();
+				return globalArgumentHolder;
 			});
 		}
 
@@ -72,22 +76,27 @@ namespace NetTaskRunner
 		private void ResetTaskWrappers()
 		{
 			foreach (var task in _tasksWrappers.Values)
+			{
 				task.UnmetDependencies = 0;
+				task.ArgumentHolder.Clear();
+			}
 
 			foreach (var task in _tasksWrappers.Values)
 				foreach (var dependantTask in task.DependantTasks)
 					dependantTask.UnmetDependencies++;
 		}
 
-		private void PerformTask(TaskWrapper task, Barrier finishingBarrier)
+		private void PerformTask(TaskWrapper task, IArgumentHolder globalArgumentHolder, Barrier finishingBarrier)
 		{
-			task.ActualTask.Perform();
+			var result = task.ActualTask.Perform(task.ArgumentHolder);
+			globalArgumentHolder.RegisterResult(task.ActualTask.Name, result);
 
 			foreach (var dependantTask in task.DependantTasks)
 			{
 				bool shouldPerform = false;
 				lock (dependantTask)
 				{
+					dependantTask.ArgumentHolder.RegisterResult(task.ActualTask.Name, result);
 					dependantTask.UnmetDependencies--;
 					if (dependantTask.UnmetDependencies == 0)
 						shouldPerform = true;
@@ -96,7 +105,7 @@ namespace NetTaskRunner
 				if (shouldPerform)
 				{
 					var taskToPerform = dependantTask;
-					Task.Run(() => PerformTask(taskToPerform, finishingBarrier));
+					Task.Run(() => PerformTask(taskToPerform, globalArgumentHolder, finishingBarrier));
 				}
 			}
 
@@ -110,13 +119,16 @@ namespace NetTaskRunner
 				ActualTask = task;
 				UnmetDependencies = 0;
 				DependantTasks = new List<TaskWrapper>();
+				ArgumentHolder = new ArgumentHolder();
 			}
 
-			public ITask ActualTask { get; private set; }
+			public ArgumentHolder ArgumentHolder { get; }
+
+			public ITask ActualTask { get; }
 
 			public int UnmetDependencies { get; set; }
 
-			public IList<TaskWrapper> DependantTasks { get; private set; }
+			public IList<TaskWrapper> DependantTasks { get; }
 
 			public override string ToString()
 			{
