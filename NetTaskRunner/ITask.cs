@@ -2,7 +2,7 @@
 
 namespace NetTaskRunner
 {
-	public interface ITask
+	public interface IMission
 	{
 		string Name { get; }
 		IEnumerable<string> Dependencies { get; }

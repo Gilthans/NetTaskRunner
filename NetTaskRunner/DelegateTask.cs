@@ -6,13 +6,13 @@ using System.Threading.Tasks;
 
 namespace NetTaskRunner
 {
-	public class DelegateTask : ITask
+	public class DelegateMission : IMission
 	{
-		private Func<IArgumentHolder, object> _taskAction;
+		private Func<IArgumentHolder, object> _missionAction;
 
-		public DelegateTask(string name, Func<IArgumentHolder, object> taskAction, IEnumerable<string> dependencies)
+		public DelegateMission(string name, Func<IArgumentHolder, object> missionAction, IEnumerable<string> dependencies)
 		{
-			_taskAction = taskAction;
+			_missionAction = missionAction;
 			Dependencies = dependencies;
 			Name = name;
 		}
@@ -23,7 +23,7 @@ namespace NetTaskRunner
 
 		public object Perform(IArgumentHolder argumentHolder)
 		{
-			return _taskAction(argumentHolder);
+			return _missionAction(argumentHolder);
 		}
 	}
 }

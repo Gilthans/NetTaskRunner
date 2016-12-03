@@ -8,6 +8,6 @@
 
 		object Get(string name);
 
-		void RegisterResult(string sourceTask, object argument);
+		void RegisterResult(string name, object argument);
 	}
 }

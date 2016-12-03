@@ -11,7 +11,7 @@ namespace NetTaskRunner
 	{
 		#region Fields
 
-		private Dictionary<string, object> _argumentsByTaskName = new Dictionary<string, object>();
+		private Dictionary<string, object> _argumentsByName = new Dictionary<string, object>();
 		private Dictionary<Type, object> _argumentByType = new Dictionary<Type, object>();
 
 		#endregion
@@ -22,7 +22,7 @@ namespace NetTaskRunner
 		{
 			get
 			{
-				return _argumentsByTaskName.Count;
+				return _argumentsByName.Count;
 			}
 		}
 
@@ -37,21 +37,21 @@ namespace NetTaskRunner
 
 		public object Get(string name)
 		{
-			return _argumentsByTaskName[name];
+			return _argumentsByName[name];
 		}
 
-		public void RegisterResult(string sourceTask, object argument)
+		public void RegisterResult(string name, object argument)
 		{
 			if (argument == null)
 				return;
 
-			_argumentsByTaskName.Add(sourceTask, argument);
+			_argumentsByName.Add(name, argument);
 			_argumentByType.Add(argument.GetType(), argument);
 		}
 
-		internal void Clear()
+		public void Clear()
 		{
-			_argumentByType.Clear();
+			_argumentsByName.Clear();
 			_argumentByType.Clear();
 		}
 

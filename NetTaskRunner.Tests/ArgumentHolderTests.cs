@@ -101,5 +101,35 @@ namespace NetTaskRunner.Tests
 			// Assert
 			Assert.AreEqual(5, result);
 		}
+
+		#region Clear
+
+		[TestMethod]
+		public void Clear_ShouldRemoveAllOldValues()
+		{
+			// Arrange
+			var argumentHolder = new ArgumentHolder();
+			argumentHolder.RegisterResult("Misha", 5);
+
+			// Act
+			argumentHolder.Clear();
+
+			// Assert
+			Assert.AreEqual(0, argumentHolder.Count);
+			try
+			{
+				argumentHolder.Get("Misha");
+				Assert.Fail("Expected exception key not found!");
+			}
+			catch (KeyNotFoundException) { }
+			try
+			{
+				argumentHolder.Get<int>();
+				Assert.Fail("Expected exception key not found!");
+			}
+			catch (KeyNotFoundException) { }
+		}
+
+		#endregion
 	}
 }
